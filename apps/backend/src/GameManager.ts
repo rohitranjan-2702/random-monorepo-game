@@ -233,9 +233,86 @@ export class GameManager {
 
         case "ANSWER_QUESTION":
           // calculate score on the basis of correct answer and timing
+          const game = this.games.find((x) => x.quizId === message.quizId);
+          if (game) {
+            const question = game.getCurrentQuestion();
+            const isCorrect = question !== null && question.correctAnswer === message.answer;
+            const timeTaken = message.timeTaken; // provided by the backend
+
+            // Calculate score (example: max 1000 points, decreasing with time)
+            const maxScore = 1000;
+            const timeLimit = 30; // Assuming 30 seconds per question
+            const score = isCorrect ? Math.max(0, maxScore - (timeTaken / timeLimit) * maxScore) : 0;
+
+            // Update player's score
+            const player = this.getPlayers(message.quizId).find((p) => p.userId === user.userId);
+            if (player) {
+              player.score += Math.round(score);
+            }
+
+            // Broadcast the answer result to all players
+            socketManager.broadcast(
+              message.quizId,
+              JSON.stringify({
+                type: "ANSWER_RESULT",
+                userId: user.userId,
+                name: user.name,
+                isCorrect,
+                score: Math.round(score),
+                totalScore: player ? player.score : 0,
+             })
+            );
+          } 
+          else {
+          console.error("Game not found for quiz ID:", message.quizId);
+          }
           break;
+
         case "NEXT_QUESTION":
           // update the current question and send the new question to the client
+          const gameToUpdate = this.games.find((x) => x.quizId === message.quizId);
+          if (gameToUpdate) {
+            const nextQuestion = gameToUpdate.nextQuestion();
+            if (nextQuestion !== undefined) {
+              // If there's a next question, send it to all players
+              socketManager.broadcast(
+                message.quizId,
+                JSON.stringify({
+                  type: "NEW_QUESTION",
+                  question: {
+                    id: nextQuestion?.id,
+                    text: nextQuestion?.text,
+                    options: nextQuestion?.options,
+                    timeLimit: nextQuestion?.timeLimit,
+                  },
+                })
+              );
+            } else {
+              // If there are no more questions, end the game
+                interface Player {
+                  userId: string;
+                  name: string;
+                  score: number; // Add the 'score' property
+                }
+
+                // Rest of the code...
+
+              gameToUpdate.endGame();
+              const finalScores = this.getPlayers(message.quizId).map((p) => ({
+              userId: p.userId,
+              name: p.name,
+              score: p.score,
+              }));
+              socketManager.broadcast(
+              message.quizId,
+              JSON.stringify({
+                type: "GAME_OVER",
+                scores: finalScores.sort((a, b) => b.score - a.score), // Sort by score descending
+              })
+              );
+            }
+        }
+
           break;
         default:
           console.error("Unknown message type:", message.type);
